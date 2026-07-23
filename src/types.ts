@@ -47,6 +47,8 @@ export interface ProcessedOrder {
   sourceFileName?: string;
   platformName?: string;
   platformId?: string;
+  fixedQty?: number;
+  category?: string;
   validationIssues?: string[]; // 개별 주문의 누락 필드 목록
   matchType?: 'exact' | 'soft' | 'unmatched';
   softMatchReason?: string;
@@ -69,6 +71,27 @@ export interface ValidationReport {
   validRows: number;
   issueRows: number;
   issues: ValidationIssue[];
+}
+
+export interface InspectionCheckItem {
+  id: string;
+  step: 1 | 2;
+  category: 'ERROR' | 'WARNING';
+  code: string;
+  title: string;
+  status: 'PASS' | 'FAIL' | 'WARNING';
+  description: string;
+  failCount: number;
+  details: string[];
+}
+
+export interface StepValidationResult {
+  step1: InspectionCheckItem[];
+  step2: InspectionCheckItem[];
+  step1Status: 'PASS' | 'FAIL' | 'WARNING';
+  step2Status: 'PASS' | 'FAIL' | 'WARNING';
+  totalFailCount: number;
+  totalWarningCount: number;
 }
 
 export interface MatchingError {

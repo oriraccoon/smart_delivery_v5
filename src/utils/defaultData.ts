@@ -38,8 +38,8 @@ export const PLATFORM_PRESETS: { name: string; id: string; config: Omit<Platform
         주소: 29, // AD (수취인주소)
         배송메시지: 30 // AE (배송메세지)
       },
-      tracking_col: 5,
-      courier_col: 4,
+      tracking_col: 4,
+      courier_col: 3,
       filepath_pattern: "input/DeliveryList_*.xlsx"
     }
   },
@@ -59,8 +59,8 @@ export const PLATFORM_PRESETS: { name: string; id: string; config: Omit<Platform
         주소: 19, // T (수취인주소)
         배송메시지: 21 // V (배송메세지)
       },
-      tracking_col: 1,
-      courier_col: 0,
+      tracking_col: 6,
+      courier_col: 5,
       filepath_pattern: "input/주문배송관리-상품준비중-*.xlsx"
     }
   },
@@ -124,8 +124,8 @@ export const DEFAULT_PLATFORMS: PlatformConfig[] = [
       주소: 29, // AD (수취인주소)
       배송메시지: 30 // AE (배송메세지)
     },
-    tracking_col: 5,
-    courier_col: 4,
+    tracking_col: 4,
+    courier_col: 3,
     filepath_pattern: "input/DeliveryList([오늘날짜]).xlsx"
   },
   {
@@ -162,8 +162,8 @@ export const DEFAULT_PLATFORMS: PlatformConfig[] = [
       주소: 19, // T (수취인주소)
       배송메시지: 21 // V (배송메세지)
     },
-    tracking_col: 1,
-    courier_col: 0,
+    tracking_col: 6,
+    courier_col: 5,
     filepath_pattern: "input/주문배송관리-상품준비중-*-([오늘날짜]).xlsx"
   }
 ];

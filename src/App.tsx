@@ -22,7 +22,7 @@ import {
   Eye
 } from 'lucide-react';
 
-import { PlatformConfig, ProductMapping, ProcessedOrder, MatchingError, ValidationIssue } from './types';
+import { PlatformConfig, ProductMapping, ProcessedOrder, MatchingError, ValidationIssue, StepValidationResult } from './types';
 import { DEFAULT_PLATFORMS, DEFAULT_PRODUCT_MAPPINGS } from './utils/defaultData';
 import { 
   parseAndProcessOrderExcel, 
@@ -35,6 +35,7 @@ import {
   findBestOrderSheet,
   sortUnitsSmart
 } from './utils/excelProcessor';
+import { runComprehensiveValidation, ValidationInputStep1, ValidationInputStep2, OutputFileInfo } from './utils/validationEngine';
 
 import PlatformSettings from './components/PlatformSettings';
 import ProductMappingList from './components/ProductMappingList';
@@ -109,6 +110,118 @@ export default function App() {
   const [trackingResult, setTrackingResult] = useState<any>(null);
   const [selectedCourier, setSelectedCourier] = useState<string>("한진택배");
   const [customCourier, setCustomCourier] = useState<string>("");
+
+  // 종합 품질 검사 결과 상태
+  const [stepValidationResult, setStepValidationResult] = useState<StepValidationResult | undefined>(undefined);
+
+  // 실시간 종합 품질 검사 평가 계산기
+  useEffect(() => {
+    let step1Input: ValidationInputStep1 | undefined = undefined;
+    let step2Input: ValidationInputStep2 | undefined = undefined;
+
+    if (orderParseResult && orderParseResult.orders && orderParseResult.orders.length > 0) {
+      const orders: ProcessedOrder[] = orderParseResult.orders;
+      const rawOrders: ProcessedOrder[] = orderParseResult.orders;
+
+      const summaryDetailHeaders = ["용량", "상품명", "수량", "주문자"];
+      const summaryDetailRows = orders.map(o => ({
+        용량: o.originalOptionName || "",
+        상품명: o.originalProductName || "",
+        수량: o.수량,
+        주문자: o.주문자 || "",
+        multiplier: o.multiplier || 1
+      }));
+
+      const unitSet = new Set<string>();
+      const pivotMap: { [baseName: string]: { [unit: string]: number } } = {};
+      orders.forEach(o => {
+        const unit = o.용량 || "기본";
+        const baseName = o.상품명 || "미분류";
+        unitSet.add(unit);
+        if (!pivotMap[baseName]) pivotMap[baseName] = {};
+        pivotMap[baseName][unit] = (pivotMap[baseName][unit] || 0) + (o.수량 * (o.multiplier || 1));
+      });
+      const sortedUnits = sortUnitsSmart(Array.from(unitSet));
+      const summaryGroupHeaders = ["상품 분류 (행 레이블)", ...sortedUnits, "총합계"];
+
+      const summaryGroupRows: { 상품분류: string; 총수량: number; 총kg: number }[] = [];
+      Object.keys(pivotMap).forEach(baseName => {
+        let totalQty = 0;
+        let totalKg = 0;
+        sortedUnits.forEach(unit => {
+          const q = pivotMap[baseName][unit] || 0;
+          totalQty += q;
+          let kgVal = 0;
+          const uLower = unit.toLowerCase();
+          if (uLower.includes("kg")) kgVal = parseFloat(uLower) || 0;
+          else if (uLower.includes("g")) kgVal = (parseFloat(uLower) || 0) / 1000;
+          totalKg += kgVal * q;
+        });
+        summaryGroupRows.push({
+          상품분류: baseName,
+          총수량: totalQty,
+          총kg: totalKg
+        });
+      });
+
+      const sortedHeaders = ["용량", "상품명", "수량(고정)", "수량", "수령인", "연락처", "우편번호", "주소", "배송메세지"];
+
+      step1Input = {
+        rawOrders,
+        processedOrders: orders,
+        summaryDetailHeaders,
+        summaryDetailRows,
+        summaryGroupHeaders,
+        summaryGroupRows,
+        sortedHeaders,
+        sortedRows: orders,
+        productMappings
+      };
+    }
+
+    if (trackingResult && orderParseResult && orderParseResult.parsedFiles) {
+      const outputFilesInfo: OutputFileInfo[] = [];
+      const parsedFiles = orderParseResult.parsedFiles;
+      const finalCourierName = selectedCourier === 'custom' ? customCourier : selectedCourier;
+
+      parsedFiles.forEach((pf: any) => {
+        const fileOrders = trackingResult.outputOrders ? trackingResult.outputOrders.filter(
+          (o: any) => !o.sourceFileName || o.sourceFileName === pf.fileName || parsedFiles.length === 1
+        ) : [];
+
+        let missingTracking = 0;
+        let missingCourier = 0;
+        fileOrders.forEach((o: any) => {
+          const effectiveCourier = o.courierName || finalCourierName;
+          if (!o.trackingNumber) missingTracking++;
+          if (!effectiveCourier || String(effectiveCourier).trim() === '') missingCourier++;
+        });
+
+        outputFilesInfo.push({
+          fileName: pf.fileName,
+          platformName: pf.detectedPlatform?.name || "알수없음",
+          totalRows: fileOrders.length,
+          headers: pf.headers || [],
+          originalHeaders: pf.headers || [],
+          missingTrackingCount: missingTracking,
+          missingCourierCount: missingCourier,
+          duplicateDeliveryNCount: trackingResult.dupNCount || 0
+        });
+      });
+
+      step2Input = {
+        step1InputOrderCount: orderParseResult.orders.length,
+        outputFiles: outputFilesInfo
+      };
+    }
+
+    if (step1Input || step2Input) {
+      const result = runComprehensiveValidation(step1Input, step2Input);
+      setStepValidationResult(result);
+    } else {
+      setStepValidationResult(undefined);
+    }
+  }, [orderParseResult, trackingResult, productMappings]);
 
   // 비밀번호 잠금 에러 상태
   const [passwordErrorFile, setPasswordErrorFile] = useState<'order' | 'tracking' | null>(null);
@@ -1209,14 +1322,6 @@ export default function App() {
                 </motion.div>
               )}
 
-              {/* 엑셀 파싱 필수 항목 유효성 검사 결과 대시보드 */}
-              {orderParseResult && (
-                <ExcelValidationDashboard
-                  validationIssues={orderParseResult.validationIssues || []}
-                  totalOrderCount={orderParseResult.orders.length}
-                />
-              )}
-
               {/* 원스톱 작업 패널 */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 
@@ -1426,6 +1531,17 @@ export default function App() {
                       주문 엑셀 데이터를 정밀 분석 및 다중 정렬 중...
                     </div>
                   )}
+
+                  {/* 1단계 엑셀 품질 검사 대시보드 */}
+                  {orderParseResult && stepValidationResult && (
+                    <div className="pt-2">
+                      <ExcelValidationDashboard
+                        validationResult={stepValidationResult}
+                        stepFilter={1}
+                        totalOrderCount={orderParseResult.orders.length}
+                      />
+                    </div>
+                  )}
                 </div>
 
                 {/* 2단계 카드: 운송장 매칭 */}
@@ -1553,6 +1669,17 @@ export default function App() {
                     <div className="flex items-center justify-center gap-2 text-xs text-indigo-600 py-2">
                       <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                       고객명/주소/우편번호 교차 검증 및 지능형 매칭 대조 중...
+                    </div>
+                  )}
+
+                  {/* 2단계 엑셀 품질 검사 대시보드 */}
+                  {trackingResult && stepValidationResult && (
+                    <div className="pt-2">
+                      <ExcelValidationDashboard
+                        validationResult={stepValidationResult}
+                        stepFilter={2}
+                        totalOrderCount={orderParseResult?.orders?.length || 0}
+                      />
                     </div>
                   )}
                 </div>
